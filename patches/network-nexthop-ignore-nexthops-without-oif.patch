@@ -9,6 +9,7 @@ with a NULL link and aborts:
 Repro: ip nexthop add id 10 via 192.0.2.1 fdb
 
 Forwarded: https://github.com/systemd/systemd-stable/pull/499
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/systemd/+bug/2174541
 Last-Update: 2026-11-15
 ---
 diff --git a/src/network/networkd-nexthop.c b/src/network/networkd-nexthop.c

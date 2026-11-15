@@ -6,6 +6,7 @@ did not configure, so it no longer deletes a routing daemon's nexthop
 groups when configuring a link. As in v256, [NextHop] then needs Id=.
 
 Forwarded: https://github.com/systemd/systemd-stable/pull/499
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/systemd/+bug/2174541
 Last-Update: 2026-11-15
 ---
 diff --git a/man/networkd.conf.xml b/man/networkd.conf.xml
