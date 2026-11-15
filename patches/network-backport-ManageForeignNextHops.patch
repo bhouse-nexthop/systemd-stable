@@ -1,19 +1,11 @@
 From: Brad House <bhouse@nexthop.ai>
-Subject: network: backport ManageForeignNextHops= to v255
+Subject: network: backport ManageForeignNextHops=
 
-Add the networkd.conf [Network] ManageForeignNextHops= boolean (default
-yes) that v256 introduced. When false, networkd neither enumerates nor
-remembers nexthops it did not configure, so it never removes nexthops
-installed by a routing daemon (e.g. FRR zebra's ECMP and fdb nexthop
-groups) when it (re)configures a link, and it never sees fdb nexthops at
-all. Routes received with an unknown nexthop ID are then ignored quietly.
-As in v256, [NextHop] sections must set Id= when the option is false,
-since networkd cannot pick an ID unused by foreign nexthops.
+From v256. With ManageForeignNextHops=no, networkd ignores nexthops it
+did not configure, so it no longer deletes a routing daemon's nexthop
+groups when configuring a link. As in v256, [NextHop] then needs Id=.
 
-This is a v255-sized reimplementation, not a cherry-pick: upstream added
-the option together with the v256 rework of nexthop tracking.
-
-Forwarded: not-yet (https://github.com/bhouse-nexthop/systemd-stable/tree/v255-fdb-nexthops)
+Forwarded: https://github.com/systemd/systemd-stable/pull/499
 Last-Update: 2026-11-15
 ---
 diff --git a/man/networkd.conf.xml b/man/networkd.conf.xml

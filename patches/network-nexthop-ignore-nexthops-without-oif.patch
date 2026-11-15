@@ -1,19 +1,14 @@
 From: Brad House <bhouse@nexthop.ai>
-Subject: network/nexthop: ignore nexthops without NHA_OIF, e.g. fdb nexthops
+Subject: network/nexthop: ignore nexthops without NHA_OIF
 
-A nexthop that is neither a group nor a blackhole is treated as owned by a
-link, but fdb nexthops (NHA_FDB, installed e.g. by FRR zebra for EVPN
-multihoming remote Ethernet Segments) carry no NHA_OIF. link is then NULL
-and nexthop_add() aborts on assert(link), so systemd-networkd crash-loops
-as soon as such a nexthop exists:
+fdb nexthops have no NHA_OIF, so networkd treats them as link-owned
+with a NULL link and aborts:
 
-  Assertion 'link' failed at src/network/networkd-nexthop.c:283,
-  function nexthop_add(). Aborting.
+  Assertion 'link' failed at src/network/networkd-nexthop.c:283, function nexthop_add(). Aborting.
 
-Ignore such nexthops; networkd does not manage them. v256 reworked nexthop
-tracking (nexthops are stored by ID) and does not have this assertion.
+Repro: ip nexthop add id 10 via 192.0.2.1 fdb
 
-Forwarded: not-yet (https://github.com/bhouse-nexthop/systemd-stable/tree/v255-fdb-nexthops)
+Forwarded: https://github.com/systemd/systemd-stable/pull/499
 Last-Update: 2026-11-15
 ---
 diff --git a/src/network/networkd-nexthop.c b/src/network/networkd-nexthop.c

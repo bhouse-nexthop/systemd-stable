@@ -32,9 +32,8 @@ whenever it configures a link that lacks `KeepConfiguration=yes`. v256 added
    enumerates nor remembers nexthops it did not configure, so it never removes a
    routing daemon's nexthops.
 
-The same two changes, as commits against upstream `v255-stable`, are on the
-[`v255-fdb-nexthops`](https://github.com/bhouse-nexthop/systemd-stable/tree/v255-fdb-nexthops)
-branch.
+Upstream PR: https://github.com/systemd/systemd-stable/pull/499 (branch
+`v255-fdb-nexthops`).
 
 ## Rebasing on a newer Ubuntu update
 
