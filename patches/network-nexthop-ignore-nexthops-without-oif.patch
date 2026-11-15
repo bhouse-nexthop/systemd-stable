@@ -1,0 +1,37 @@
+From: Brad House <bhouse@nexthop.ai>
+Subject: network/nexthop: ignore nexthops without NHA_OIF, e.g. fdb nexthops
+
+A nexthop that is neither a group nor a blackhole is treated as owned by a
+link, but fdb nexthops (NHA_FDB, installed e.g. by FRR zebra for EVPN
+multihoming remote Ethernet Segments) carry no NHA_OIF. link is then NULL
+and nexthop_add() aborts on assert(link), so systemd-networkd crash-loops
+as soon as such a nexthop exists:
+
+  Assertion 'link' failed at src/network/networkd-nexthop.c:283,
+  function nexthop_add(). Aborting.
+
+Ignore such nexthops; networkd does not manage them. v256 reworked nexthop
+tracking (nexthops are stored by ID) and does not have this assertion.
+
+Forwarded: not-yet (https://github.com/bhouse-nexthop/systemd-stable/tree/v255-fdb-nexthops)
+Last-Update: 2026-11-15
+---
+diff --git a/src/network/networkd-nexthop.c b/src/network/networkd-nexthop.c
+index e2ded28..e6b80c2 100644
+--- a/src/network/networkd-nexthop.c
++++ b/src/network/networkd-nexthop.c
+@@ -942,6 +942,14 @@ int manager_rtnl_process_nexthop(sd_netlink *rtnl, sd_netlink_message *message,
+          * set NHA_OID attribute when NHA_BLACKHOLE or NHA_GROUP is set. Just for safety. */
+         if (!nexthop_owned_by_link(tmp))
+                 link = NULL;
++        else if (!link) {
++                /* A nexthop that is neither a group nor a blackhole is usually bound to a link through
++                 * NHA_OIF. However, fdb nexthops (NHA_FDB, used e.g. by EVPN multihoming) do not have
++                 * NHA_OIF. We do not manage such nexthops, hence ignore them. Otherwise, nexthop_add()
++                 * would hit assert(link). */
++                log_debug("rtnl: received nexthop message without NHA_OIF attribute for ID %"PRIu32", ignoring.", tmp->id);
++                return 0;
++        }
+ 
+         (void) nexthop_get(m, link, tmp, &nexthop);
+ 

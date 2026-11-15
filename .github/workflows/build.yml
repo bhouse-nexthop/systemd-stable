@@ -1,0 +1,40 @@
+name: Build noble systemd packages
+
+on:
+  push:
+    branches: [noble-nexthop]
+    tags: ['noble/*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in ubuntu:24.04
+        run: docker run --rm -v "$PWD:/work" ubuntu:24.04 bash /work/build.sh
+
+      - name: Version
+        id: ver
+        run: echo "version=$(cat UBUNTU_VERSION)$(cat LOCAL_SUFFIX)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: systemd_${{ steps.ver.outputs.version }}_amd64
+          path: out/
+          retention-days: 90
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/noble/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" out
+          gh release create "$GITHUB_REF_NAME" out/* \
+            --title "systemd ${{ steps.ver.outputs.version }} (noble)" \
+            --notes "Ubuntu noble systemd ${{ steps.ver.outputs.version }}: $(cat UBUNTU_VERSION) plus the patches in patches/ at ${GITHUB_SHA::12}."

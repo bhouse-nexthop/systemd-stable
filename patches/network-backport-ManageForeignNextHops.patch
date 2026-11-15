@@ -1,0 +1,154 @@
+From: Brad House <bhouse@nexthop.ai>
+Subject: network: backport ManageForeignNextHops= to v255
+
+Add the networkd.conf [Network] ManageForeignNextHops= boolean (default
+yes) that v256 introduced. When false, networkd neither enumerates nor
+remembers nexthops it did not configure, so it never removes nexthops
+installed by a routing daemon (e.g. FRR zebra's ECMP and fdb nexthop
+groups) when it (re)configures a link, and it never sees fdb nexthops at
+all. Routes received with an unknown nexthop ID are then ignored quietly.
+As in v256, [NextHop] sections must set Id= when the option is false,
+since networkd cannot pick an ID unused by foreign nexthops.
+
+This is a v255-sized reimplementation, not a cherry-pick: upstream added
+the option together with the v256 rework of nexthop tracking.
+
+Forwarded: not-yet (https://github.com/bhouse-nexthop/systemd-stable/tree/v255-fdb-nexthops)
+Last-Update: 2026-11-15
+---
+diff --git a/man/networkd.conf.xml b/man/networkd.conf.xml
+index 018bde0..65b1fe8 100644
+--- a/man/networkd.conf.xml
++++ b/man/networkd.conf.xml
+@@ -90,6 +90,17 @@
+         <xi:include href="version-info.xml" xpointer="v246"/></listitem>
+       </varlistentry>
+ 
++      <varlistentry>
++        <term><varname>ManageForeignNextHops=</varname></term>
++        <listitem><para>A boolean. When true, <command>systemd-networkd</command> will remove nexthops
++        that are not configured in .network files (except for nexthops with protocol
++        <literal>kernel</literal>). When false, it will not remove any foreign nexthops, keeping them even
++        if they are not configured in a .network file. When false, [NextHop] sections in .network files
++        must have <varname>Id=</varname> set. Defaults to yes.</para>
++
++        <xi:include href="version-info.xml" xpointer="v256"/></listitem>
++      </varlistentry>
++
+       <varlistentry>
+         <term><varname>RouteTable=</varname></term>
+         <listitem><para>Defines the route table name. Takes a whitespace-separated list of the pairs of
+diff --git a/src/network/networkd-gperf.gperf b/src/network/networkd-gperf.gperf
+index 8542ffa..c9e3c93 100644
+--- a/src/network/networkd-gperf.gperf
++++ b/src/network/networkd-gperf.gperf
+@@ -25,6 +25,7 @@ Network.SpeedMeter,                      config_parse_bool,
+ Network.SpeedMeterIntervalSec,           config_parse_sec,                       0,          offsetof(Manager, speed_meter_interval_usec)
+ Network.ManageForeignRoutingPolicyRules, config_parse_bool,                      0,          offsetof(Manager, manage_foreign_rules)
+ Network.ManageForeignRoutes,             config_parse_bool,                      0,          offsetof(Manager, manage_foreign_routes)
++Network.ManageForeignNextHops,           config_parse_bool,                      0,          offsetof(Manager, manage_foreign_nexthops)
+ Network.RouteTable,                      config_parse_route_table_names,         0,          0
+ Network.IPv6PrivacyExtensions,           config_parse_ipv6_privacy_extensions,   0,          offsetof(Manager, ipv6_privacy_extensions)
+ DHCPv4.DUIDType,                         config_parse_duid_type,                 0,          offsetof(Manager, dhcp_duid)
+diff --git a/src/network/networkd-manager.c b/src/network/networkd-manager.c
+index 33b0275..b37f5b7 100644
+--- a/src/network/networkd-manager.c
++++ b/src/network/networkd-manager.c
+@@ -595,6 +595,7 @@ int manager_new(Manager **ret, bool test_mode) {
+                 .online_state = _LINK_ONLINE_STATE_INVALID,
+                 .manage_foreign_routes = true,
+                 .manage_foreign_rules = true,
++                .manage_foreign_nexthops = true,
+                 .ethtool_fd = -EBADF,
+                 .dhcp_duid.type = DUID_TYPE_EN,
+                 .dhcp6_duid.type = DUID_TYPE_EN,
+@@ -862,6 +863,9 @@ static int manager_enumerate_nexthop(Manager *m) {
+         assert(m);
+         assert(m->rtnl);
+ 
++        if (!m->manage_foreign_nexthops)
++                return 0;
++
+         r = sd_rtnl_message_new_nexthop(m->rtnl, &req, RTM_GETNEXTHOP, 0, 0);
+         if (r < 0)
+                 return r;
+diff --git a/src/network/networkd-manager.h b/src/network/networkd-manager.h
+index 627b39f..f7a8416 100644
+--- a/src/network/networkd-manager.h
++++ b/src/network/networkd-manager.h
+@@ -38,6 +38,7 @@ struct Manager {
+         bool restarting;
+         bool manage_foreign_routes;
+         bool manage_foreign_rules;
++        bool manage_foreign_nexthops;
+ 
+         Set *dirty_links;
+         Set *new_wlan_ifindices;
+diff --git a/src/network/networkd-nexthop.c b/src/network/networkd-nexthop.c
+index e6b80c2..46ddc01 100644
+--- a/src/network/networkd-nexthop.c
++++ b/src/network/networkd-nexthop.c
+@@ -959,6 +959,9 @@ int manager_rtnl_process_nexthop(sd_netlink *rtnl, sd_netlink_message *message,
+                         nexthop->flags = tmp->flags;
+                         nexthop_enter_configured(nexthop);
+                         log_nexthop_debug(tmp, "Received remembered", link);
++                } else if (!m->manage_foreign_nexthops) {
++                        nexthop_enter_configured(tmp);
++                        log_nexthop_debug(tmp, "Ignoring received", link);
+                 } else {
+                         nexthop_enter_configured(tmp);
+                         log_nexthop_debug(tmp, "Remembering", link);
+@@ -982,7 +985,9 @@ int manager_rtnl_process_nexthop(sd_netlink *rtnl, sd_netlink_message *message,
+                         } else
+                                 log_nexthop_debug(nexthop, "Removed", link);
+                 } else
+-                        log_nexthop_debug(tmp, "Kernel removed unknown", link);
++                        log_nexthop_debug(tmp,
++                                          m->manage_foreign_nexthops ? "Kernel removed unknown" : "Ignoring received",
++                                          link);
+                 break;
+ 
+         default:
+@@ -996,6 +1001,14 @@ static int nexthop_section_verify(NextHop *nh) {
+         if (section_is_invalid(nh->section))
+                 return -EINVAL;
+ 
++        if (!nh->network->manager->manage_foreign_nexthops && nh->id == 0)
++                /* We do not track foreign nexthops, so we cannot find an ID unused by the kernel. */
++                return log_warning_errno(SYNTHETIC_ERRNO(EINVAL),
++                                         "%s: [NextHop] section without Id= is not supported if "
++                                         "ManageForeignNextHops=no is set in networkd.conf. "
++                                         "Ignoring [NextHop] section from line %u.",
++                                         nh->section->filename, nh->section->line);
++
+         if (!hashmap_isempty(nh->group)) {
+                 if (in_addr_is_set(nh->family, &nh->gw))
+                         return log_warning_errno(SYNTHETIC_ERRNO(EINVAL),
+diff --git a/src/network/networkd-route.c b/src/network/networkd-route.c
+index b7de582..7b95cca 100644
+--- a/src/network/networkd-route.c
++++ b/src/network/networkd-route.c
+@@ -1924,6 +1924,11 @@ int manager_rtnl_process_route(sd_netlink *rtnl, sd_netlink_message *message, Ma
+                 return process_route_one(m, link, type, TAKE_PTR(tmp), has_cacheinfo ? &cacheinfo : NULL);
+ 
+         r = route_convert(m, tmp, &converted);
++        if (r == -ENOENT && !m->manage_foreign_nexthops) {
++                /* The route uses a nexthop we do not track, as ManageForeignNextHops=no. */
++                log_link_debug(link, "rtnl: received route with unknown nexthop ID %"PRIu32", ignoring.", tmp->nexthop_id);
++                return 0;
++        }
+         if (r < 0) {
+                 log_link_warning_errno(link, r, "rtnl: failed to convert received route, ignoring: %m");
+                 return 0;
+diff --git a/src/network/networkd.conf b/src/network/networkd.conf
+index e5a5e88..2994b8b 100644
+--- a/src/network/networkd.conf
++++ b/src/network/networkd.conf
+@@ -21,6 +21,7 @@
+ #SpeedMeterIntervalSec=10sec
+ #ManageForeignRoutingPolicyRules=yes
+ #ManageForeignRoutes=yes
++#ManageForeignNextHops=yes
+ #RouteTable=
+ #IPv6PrivacyExtensions=no
+ 
