@@ -4,7 +4,7 @@ This branch builds Ubuntu 24.04 (noble)'s `systemd` source package with two extr
 patches for `systemd-networkd`. Everything else is Ubuntu's package, unchanged.
 
 - `UBUNTU_VERSION`: the Ubuntu source version to build, fetched from Launchpad.
-- `LOCAL_SUFFIX`: appended to that version (`255.4-1ubuntu8.18` + `+nh1`).
+- `LOCAL_SUFFIX`: appended to that version (`255.4-1ubuntu8.19` + `+nh1`).
 - `patches/`: DEP-3 patches appended to Ubuntu's `debian/patches/series`.
 - `build.sh`: the build, run in an `ubuntu:24.04` container.
 - `.github/workflows/build.yml`: builds on every push (packages as a workflow
@@ -37,7 +37,7 @@ Upstream PR: https://github.com/systemd/systemd-stable/pull/499 (branch
 
 ## Rebasing on a newer Ubuntu update
 
-Set `UBUNTU_VERSION` to the new version (for example `255.4-1ubuntu8.19`), reset
+Set `UBUNTU_VERSION` to the new version (for example `255.4-1ubuntu8.20`), reset
 `LOCAL_SUFFIX` to `+nh1` if needed, push, and check that the patches still apply.
 The local version sorts below the next Ubuntu update, so hold or pin `systemd`
 on hosts that run it until Ubuntu ships the fix.
